@@ -1,0 +1,54 @@
+from fastapi import APIRouter, Depends
+
+from src.business_layer.security.Jwt import get_current_user
+from src.business_layer.security.RightsChecker import RightsChecker
+from src.constants.messages import DATABASE_CONNECTION_ERROR, OK
+from src.data_access.repurchase import products as data_access
+from src.schemas.Repurchase import AddUpdateProduct_Request, GetProducts_Request
+from src.utilities.utils import data_frame_to_json_object, save_base64_file
+
+router = APIRouter(
+    dependencies=[Depends(get_current_user)]
+)
+
+
+@router.post('/add_or_update_product', dependencies=[Depends(RightsChecker([188]))])
+def add_or_update_product(req: AddUpdateProduct_Request, token_payload: any = Depends(get_current_user)):
+    if req.product_image != '':
+        req.product_image, path = save_base64_file(req.product_image, upload_file_name='Product')
+
+    dataset = data_access.add_or_update_product(req=req, added_by_admin_id=token_payload["user_id"])
+
+    if len(dataset) > 0 and len(dataset['rs']):
+        ds = dataset['rs']
+        if ds.iloc[0].loc["success"]:
+            return {'success': True, 'message': ds.iloc[0].loc["message"]}
+
+        return {'success': False, 'message': ds.iloc[0].loc["message"]}
+    return {'success': False, 'message': DATABASE_CONNECTION_ERROR}
+
+
+@router.post('/get_products', dependencies=[Depends(RightsChecker([189, 194, 195, 196]))])
+def get_products(req: GetProducts_Request, token_payload: any = Depends(get_current_user)):
+    dataset = data_access.get_products(req=req)
+
+    if len(dataset) > 0:
+        ds = dataset['rs']
+        return {'success': True, 'message': OK, 'data': data_frame_to_json_object(ds), 'data_count': int(dataset['rs1'].iloc[0].loc["total_records"])}
+
+    return {'success': False, 'message': DATABASE_CONNECTION_ERROR}
+
+
+@router.delete('/delete_product', dependencies=[Depends(RightsChecker([190]))])
+def delete_product(product_id: int, token_payload: any = Depends(get_current_user)):
+    dataset = data_access.delete_product(product_id=product_id, admin_user_id=token_payload["user_id"])
+
+    if len(dataset) > 0:
+        ds = dataset['rs']
+        if ds.iloc[0].loc["success"]:
+            return {'success': True, 'message': ds.iloc[0].loc["message"]}
+
+        return {'success': False, 'message': ds.iloc[0].loc["message"]}
+
+    return {'success': False, 'message': DATABASE_CONNECTION_ERROR}
+
